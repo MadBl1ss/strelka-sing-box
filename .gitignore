@@ -1,0 +1,15 @@
+# Release build output and the third-party binaries it is built from
+/dist/
+/bin/
+
+# Go build output
+/tray/*.exe
+/tray/*.log
+
+# Never commit a configured copy: these hold someone's subscription keys
+hwid.txt
+xray.json
+cache.db
+*.log
+config.bak.json
+config.before-*.json

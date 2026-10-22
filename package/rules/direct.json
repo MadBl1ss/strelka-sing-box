@@ -1,0 +1,19 @@
+{
+  "version": 3,
+  "rules": [
+    {
+      "process_name": [
+        "cs2.exe",
+        "dota2.exe",
+        "steam.exe",
+        "steamservice.exe"
+      ]
+    },
+    {
+      "domain_suffix": [
+        "steamcontent.com",
+        "steampipe.akamaized.net"
+      ]
+    }
+  ]
+}

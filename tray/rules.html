@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Правила VPN</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --line: #e3e6eb; --text: #1b1f24; --muted: #69707a;
+  --vpn: #2f6fdf; --vpn-bg: #e8f0fd; --dir: #1f8a57; --dir-bg: #e5f5ec;
+  --warn: #9a6200; --warn-bg: #fff4dc; --bad: #c0392b; --chip: #f0f2f5; --hover: #f3f5f8;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b; --panel: #1d2025; --line: #2e323a; --text: #e6e8eb; --muted: #9098a3;
+    --vpn: #6f9dff; --vpn-bg: #1f2b44; --dir: #4fc28a; --dir-bg: #183327;
+    --warn: #f0b64a; --warn-bg: #3a2e15; --bad: #ff7b6b; --chip: #262a31; --hover: #23272d;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 20px; margin: 0; font-weight: 600; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.pill { font-size: 12px; padding: 3px 10px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+.pill.ok { background: var(--dir-bg); color: var(--dir); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.banner { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; display: none; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.add { display: flex; gap: 8px; padding: 12px; flex-wrap: wrap; align-items: center; }
+.add input { flex: 1 1 260px; min-width: 0; }
+input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 10px; outline: none; }
+input:focus, select:focus { border-color: var(--vpn); }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+button:hover { background: var(--hover); }
+button.vpn { background: var(--vpn); border-color: var(--vpn); color: #fff; }
+button.dir { background: var(--dir); border-color: var(--dir); color: #fff; }
+button.vpn:hover, button.dir:hover { filter: brightness(1.08); }
+button.sm { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
+button.sm.vpn-o { color: var(--vpn); border-color: var(--vpn); background: transparent; }
+button.sm.dir-o { color: var(--dir); border-color: var(--dir); background: transparent; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 8px 2px 16px; }
+.tabs { display: flex; gap: 4px; margin: 18px 0 12px; border-bottom: 1px solid var(--line); }
+.tab { border: 0; background: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 8px 14px; color: var(--muted); }
+.tab.on { color: var(--text); border-bottom-color: var(--vpn); }
+.tab:hover { background: none; color: var(--text); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+.col h2 { font-size: 15px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.vpn { background: var(--vpn); } .dot.dir { background: var(--dir); }
+.col h2 .n { color: var(--muted); font-weight: 400; font-size: 13px; }
+.sec { padding: 10px 14px 4px; }
+.sec h3 { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 2px; background: var(--chip); border-radius: 6px; padding: 2px 3px 2px 9px; font-size: 13px; max-width: 100%; }
+.chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip button { border: 0; background: none; padding: 0 5px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.chip button:hover { color: var(--text); background: none; }
+.empty { color: var(--muted); font-size: 13px; padding: 2px 0 10px; }
+details.sys { margin-top: 14px; }
+details.sys summary { cursor: pointer; color: var(--muted); padding: 10px 14px; }
+details.sys ul { margin: 0; padding: 0 14px 12px 32px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.toolbar input { flex: 1 1 220px; }
+.toolbar label { color: var(--muted); display: flex; gap: 6px; align-items: center; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr.app { cursor: pointer; }
+tr.app:hover td { background: var(--hover); }
+tr.app td:first-child { font-weight: 600; }
+tr.app .path { font-weight: 400; color: var(--muted); font-size: 12px; display: block; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+tr.host td { font-size: 13px; background: var(--bg); }
+tr.host td:first-child { padding-left: 30px; word-break: break-all; }
+.badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; white-space: nowrap; }
+.badge.vpn { background: var(--vpn-bg); color: var(--vpn); }
+.badge.dir { background: var(--dir-bg); color: var(--dir); }
+.badge.mix { background: var(--warn-bg); color: var(--warn); }
+.why { color: var(--muted); font-size: 12.5px; }
+.acts { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; }
+.num { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; }
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--text); color: var(--bg);
+  padding: 9px 16px; border-radius: 9px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+#toast.show { opacity: 1; }
+#toast.err { background: var(--bad); color: #fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Правила маршрутизации</h1>
+    <span id="status" class="pill">…</span>
+  </header>
+  <div id="banner" class="banner"></div>
+
+  <div class="card add">
+    <input id="val" placeholder="steam.exe, youtube.com, 1.2.3.0/24 …" autocomplete="off" spellcheck="false">
+    <select id="kind" title="Тип правила">
+      <option value="auto">Авто</option>
+      <option value="app">Приложение</option>
+      <option value="domain">Домен</option>
+      <option value="keyword">Слово в домене</option>
+      <option value="ip">IP / подсеть</option>
+    </select>
+    <button class="vpn" data-add="vpn">Через VPN</button>
+    <button class="dir" data-add="direct">Напрямую</button>
+  </div>
+  <div class="hint">Сначала проверяется «Напрямую», потом «Через VPN», всё остальное идёт напрямую. Домен работает и для поддоменов: <b>steampowered.com</b> включает <b>store.steampowered.com</b>. Имена программ чувствительны к регистру, поэтому их удобнее добавлять из вкладки «Сейчас активно».</div>
+
+  <div class="tabs">
+    <button class="tab on" data-tab="rules">Правила</button>
+    <button class="tab" data-tab="live">Сейчас активно</button>
+  </div>
+
+  <section id="tab-rules">
+    <div class="toolbar"><input id="filter" placeholder="Поиск по правилам" autocomplete="off"></div>
+    <div class="cols">
+      <div class="card col" id="col-vpn"></div>
+      <div class="card col" id="col-direct"></div>
+    </div>
+    <details class="card sys"><summary>Системные правила из config.json (здесь не редактируются)</summary><ul id="sys"></ul></details>
+  </section>
+
+  <section id="tab-live" hidden>
+    <div class="toolbar">
+      <input id="lfilter" placeholder="Поиск по программе или адресу" autocomplete="off">
+      <label><input type="checkbox" id="auto" checked> обновлять</label>
+    </div>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Программа / адрес</th><th>Соед.</th><th>Трафик</th><th>Маршрут</th><th>Почему</th><th></th></tr></thead>
+        <tbody id="conns"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<div id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const KINDS = [["apps", "app", "Приложения"], ["domains", "domain", "Домены"], ["keywords", "keyword", "Слова в домене"], ["ips", "ip", "IP / подсети"]];
+const LISTS = { vpn: "Через VPN", direct: "Напрямую" };
+let state = null, conns = [], open = new Set(), timer = null;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: body ? "POST" : "GET",
+    headers: { "X-Token": TOKEN, ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json().catch(() => ({ error: "HTTP " + r.status }));
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+
+function toast(msg, err) {
+  const t = $("#toast");
+  t.textContent = msg; t.className = "show" + (err ? " err" : "");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.className = "", 2600);
+}
+
+async function edit(op, list, kind, value) {
+  try {
+    state = await api("/api/rule", { op, list, kind, value });
+    renderRules(); renderConns();
+    if (op === "add") toast(`${state.added || value} → ${LISTS[list].toLowerCase()}`);
+    return true;
+  } catch (e) { toast(e.message, true); return false; }
+}
+
+// ---- rules tab -------------------------------------------------------------
+
+function renderStatus() {
+  const st = $("#status"), b = $("#banner");
+  if (!state.running) {
+    st.className = "pill"; st.textContent = "VPN выключен";
+    b.style.display = "block"; b.textContent = "sing-box не запущен. Правила сохранятся и применятся, когда VPN включится.";
+  } else if (!state.live) {
+    st.className = "pill warn"; st.textContent = "нужен перезапуск";
+    b.style.display = "block"; b.textContent = "Запущенный VPN ещё не знает о файлах правил. Нажми «Перезапустить VPN» в меню трея один раз, после этого изменения применяются сразу.";
+  } else {
+    st.className = "pill ok"; st.textContent = "изменения применяются сразу";
+    b.style.display = "none";
+  }
+}
+
+function renderRules() {
+  renderStatus();
+  const q = $("#filter").value.trim().toLowerCase();
+  for (const list of ["vpn", "direct"]) {
+    const L = state.rules[list], cls = list === "vpn" ? "vpn" : "dir";
+    const total = KINDS.reduce((n, [k]) => n + L[k].length, 0);
+    let h = `<h2><span class="dot ${cls}"></span>${LISTS[list]} <span class="n">${total}</span></h2>`;
+    for (const [k, kind, title] of KINDS) {
+      const items = L[k].filter(v => !q || v.toLowerCase().includes(q));
+      if (!items.length && q) continue;
+      h += `<div class="sec"><h3>${title}</h3>`;
+      if (!items.length) h += `<div class="empty">пусто</div>`;
+      else h += `<div class="chips">` + items.map(v =>
+        `<span class="chip" title="${esc(v)}"><span>${esc(v)}</span>` +
+        `<button title="Перенести в «${LISTS[list === "vpn" ? "direct" : "vpn"]}»" data-move="${list}" data-kind="${kind}" data-v="${esc(v)}">⇄</button>` +
+        `<button title="Удалить" data-del="${list}" data-kind="${kind}" data-v="${esc(v)}">✕</button></span>`).join("") + `</div>`;
+      h += `</div>`;
+    }
+    $("#col-" + list).innerHTML = h;
+  }
+  $("#sys").innerHTML = (state.system || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li>нет</li>";
+}
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.del) edit("remove", b.dataset.del, b.dataset.kind, b.dataset.v);
+  else if (b.dataset.move) edit("add", b.dataset.move === "vpn" ? "direct" : "vpn", b.dataset.kind, b.dataset.v);
+  else if (b.dataset.add) addFromInput(b.dataset.add);
+  else if (b.dataset.tab) switchTab(b.dataset.tab);
+  else if (b.dataset.to) { e.stopPropagation(); edit("add", b.dataset.to, b.dataset.kind, b.dataset.v); }
+  else if (b.dataset.unset) { e.stopPropagation(); edit("remove", b.dataset.unset, b.dataset.kind, b.dataset.v); }
+  else if (b.dataset.fill) { e.stopPropagation(); $("#val").value = b.dataset.fill; $("#kind").value = "auto"; $("#val").focus(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+});
+
+async function addFromInput(list) {
+  const v = $("#val").value.trim();
+  if (!v) { $("#val").focus(); return; }
+  if (await edit("add", list, $("#kind").value, v)) $("#val").value = "";
+}
+$("#val").addEventListener("keydown", e => { if (e.key === "Enter") addFromInput(e.shiftKey ? "direct" : "vpn"); });
+$("#filter").addEventListener("input", renderRules);
+$("#lfilter").addEventListener("input", renderConns);
+
+function switchTab(t) {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x.dataset.tab === t));
+  $("#tab-rules").hidden = t !== "rules";
+  $("#tab-live").hidden = t !== "live";
+  try { localStorage.setItem("tab", t); } catch (_) {}
+  if (t === "live") loadConns();
+}
+
+// ---- live tab --------------------------------------------------------------
+
+function ip4(s) {
+  const p = s.split(".");
+  if (p.length !== 4) return null;
+  let n = 0;
+  for (const x of p) { const v = +x; if (!/^\d+$/.test(x) || v > 255) return null; n = n * 256 + v; }
+  return n;
+}
+function inCidr(ip, cidr) {
+  const [base, bits] = cidr.split("/"), a = ip4(ip), b = ip4(base);
+  if (a === null || b === null) return ip === base; // IPv6: exact match only
+  const size = 2 ** (32 - +bits);
+  return Math.floor(a / size) === Math.floor(b / size);
+}
+
+// Which entry of our lists catches this connection, in sing-box's order.
+function whyLocal(c) {
+  for (const list of ["direct", "vpn"]) {
+    const L = state.rules[list];
+    if (c.app && L.apps.includes(c.app)) return { list, kind: "app", v: c.app };
+    const h = (c.host || "").toLowerCase();
+    if (h) {
+      const d = L.domains.find(d => h === d || h.endsWith("." + d));
+      if (d) return { list, kind: "domain", v: d };
+      const k = L.keywords.find(k => h.includes(k));
+      if (k) return { list, kind: "keyword", v: k };
+    }
+    const i = L.ips.find(x => c.ip && inCidr(c.ip, x));
+    if (i) return { list, kind: "ip", v: i };
+  }
+  return null;
+}
+
+function ruleLabel(r) {
+  if (!r || r === "final") return "по умолчанию";
+  if (r.includes("rule_set=direct")) return "список «Напрямую»";
+  if (r.includes("rule_set=vpn")) return "список «Через VPN»";
+  if (r.includes("xray.exe")) return "xray (системное)";
+  if (r.includes("wsl-in")) return "WSL";
+  const cond = r.split(" => ")[0];
+  return cond.length > 40 ? cond.slice(0, 40) + "…" : cond;
+}
+const fromList = r => !!r && (r.includes("rule_set=direct") || r.includes("rule_set=vpn"));
+
+const viaVPN = c => !(c.chains || []).includes("direct");
+function routeBadge(list) {
+  const v = list.filter(viaVPN).length;
+  if (v === 0) return `<span class="badge dir">напрямую</span>`;
+  if (v === list.length) {
+    const srv = [...new Set(list.map(c => c.chains[0]))].join(", ");
+    return `<span class="badge vpn" title="${esc(srv)}">VPN · ${esc(srv.length > 22 ? srv.slice(0, 22) + "…" : srv)}</span>`;
+  }
+  return `<span class="badge mix">${v} VPN / ${list.length - v} напрямую</span>`;
+}
+
+function fmtBytes(b) {
+  if (b >= 1 << 30) return (b / (1 << 30)).toFixed(1) + " ГБ";
+  if (b >= 1 << 20) return (b / (1 << 20)).toFixed(1) + " МБ";
+  if (b >= 1 << 10) return Math.round(b / (1 << 10)) + " КБ";
+  return b + " Б";
+}
+
+// Short site name for a host: cdn.steamstatic.com -> steamstatic.com.
+function baseDomain(h) {
+  if (!h || ip4(h) !== null || h.includes(":")) return null;
+  const p = h.toLowerCase().split(".");
+  if (p.length <= 2) return p.join(".");
+  const sld = p[p.length - 2];
+  const n = (p[p.length - 1].length === 2 && ["com", "co", "net", "org", "gov", "edu", "ac"].includes(sld)) ? 3 : 2;
+  return p.slice(-n).join(".");
+}
+
+// sing-box decides a connection's route once, when it opens. An entry added
+// since then shows up here as "not applied yet" until the app reconnects.
+function whyText(c) {
+  const w = whyLocal(c), label = ruleLabel(c.rule);
+  if (!w) return label;
+  if (fromList(c.rule)) return `${label}: ${w.v}`;
+  return `${label} · в «${LISTS[w.list]}» есть ${w.v}, применится к новым соединениям`;
+}
+
+// Their routes are fixed in config.json (xray.exe must never loop back into
+// the tunnel), so offering a button would only mislead.
+const PINNED = ["xray.exe", "sing-box.exe"];
+
+function appButtons(app) {
+  if (!app || PINNED.includes(app.toLowerCase())) return "";
+  const inV = state.rules.vpn.apps.includes(app), inD = state.rules.direct.apps.includes(app);
+  let h = "";
+  if (!inV) h += `<button class="sm vpn-o" data-to="vpn" data-kind="app" data-v="${esc(app)}">в VPN</button>`;
+  if (!inD) h += `<button class="sm dir-o" data-to="direct" data-kind="app" data-v="${esc(app)}">напрямую</button>`;
+  if (inV || inD) h += `<button class="sm" title="Убрать правило для программы" data-unset="${inV ? "vpn" : "direct"}" data-kind="app" data-v="${esc(app)}">убрать</button>`;
+  return h;
+}
+
+function hostButtons(c) {
+  const d = baseDomain(c.host);
+  if (d) return `<button class="sm vpn-o" data-to="vpn" data-kind="domain" data-v="${esc(d)}" title="${esc(d)} через VPN">${esc(d)} → VPN</button>` +
+    `<button class="sm dir-o" data-to="direct" data-kind="domain" data-v="${esc(d)}" title="${esc(d)} напрямую">→ напрямую</button>` +
+    `<button class="sm" data-fill="${esc(c.host)}" title="Скопировать адрес в поле добавления">✎</button>`;
+  if (c.ip) return `<button class="sm vpn-o" data-to="vpn" data-kind="ip" data-v="${esc(c.ip)}">IP → VPN</button>` +
+    `<button class="sm dir-o" data-to="direct" data-kind="ip" data-v="${esc(c.ip)}">→ напрямую</button>`;
+  return "";
+}
+
+function renderConns() {
+  const body = $("#conns");
+  if (!state) return;
+  if (conns === null) { body.innerHTML = `<tr><td colspan="6" class="why">VPN выключен — активных соединений не видно.</td></tr>`; return; }
+  const q = $("#lfilter").value.trim().toLowerCase();
+  const groups = new Map();
+  for (const c of conns) {
+    const key = c.app || "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  let rows = [...groups.entries()].map(([app, list]) => ({
+    app, list, path: list[0].path, traffic: list.reduce((n, c) => n + c.up + c.down, 0),
+  }));
+  if (q) rows = rows.filter(g => g.app.toLowerCase().includes(q) || g.list.some(c => (c.host || c.ip || "").toLowerCase().includes(q)));
+  rows.sort((a, b) => b.traffic - a.traffic);
+
+  let h = "";
+  for (const g of rows) {
+    const key = g.app || "(без процесса)";
+    const isOpen = open.has(key) || (q && !g.app.toLowerCase().includes(q));
+    const whys = [...new Set(g.list.map(whyText))];
+    h += `<tr class="app" data-key="${esc(key)}"><td>${isOpen ? "▾" : "▸"} ${esc(g.app || "Без процесса (системное)")}` +
+      (g.path ? `<span class="path" title="${esc(g.path)}">${esc(g.path)}</span>` : "") + `</td>` +
+      `<td class="num">${g.list.length}</td><td class="num">${fmtBytes(g.traffic)}</td>` +
+      `<td>${routeBadge(g.list)}</td><td class="why">${esc(whys.slice(0, 2).join("; "))}${whys.length > 2 ? "…" : ""}</td>` +
+      `<td><div class="acts">${appButtons(g.app)}</div></td></tr>`;
+    if (!isOpen) continue;
+    const hosts = new Map();
+    for (const c of g.list) {
+      const hk = (c.host || c.ip) + ":" + c.port;
+      if (!hosts.has(hk)) hosts.set(hk, []);
+      hosts.get(hk).push(c);
+    }
+    for (const [hk, list] of hosts) {
+      const c = list[0];
+      if (q && !g.app.toLowerCase().includes(q) && !hk.toLowerCase().includes(q)) continue;
+      h += `<tr class="host"><td>${esc(hk)}${c.host && c.ip ? ` <span class="why">${esc(c.ip)}</span>` : ""} <span class="why">${esc(c.net)}</span></td>` +
+        `<td class="num">${list.length}</td><td class="num">${fmtBytes(list.reduce((n, x) => n + x.up + x.down, 0))}</td>` +
+        `<td>${routeBadge(list)}</td><td class="why">${esc(whyText(c))}</td><td><div class="acts">${hostButtons(c)}</div></td></tr>`;
+    }
+  }
+  body.innerHTML = h || `<tr><td colspan="6" class="why">${q ? "Ничего не найдено." : "Нет активных соединений."}</td></tr>`;
+}
+
+$("#conns").addEventListener("click", e => {
+  if (e.target.closest("button")) return;
+  const tr = e.target.closest("tr.app");
+  if (!tr) return;
+  const k = tr.dataset.key;
+  open.has(k) ? open.delete(k) : open.add(k);
+  renderConns();
+});
+
+async function loadConns() {
+  try {
+    const r = await api("/api/connections");
+    conns = r.running ? r.connections : null;
+    renderConns();
+  } catch (e) { /* tray closed or restarting; keep the last view */ }
+}
+
+async function tick() {
+  if (!$("#tab-live").hidden && $("#auto").checked) await loadConns();
+  if (Date.now() - (tick.last || 0) > 10000) {
+    tick.last = Date.now();
+    try { state = await api("/api/state"); renderStatus(); } catch (_) {}
+  }
+}
+
+(async () => {
+  try { state = await api("/api/state"); }
+  catch (e) { document.body.innerHTML = `<div class="wrap"><h1>Не удалось загрузить правила</h1><p>${esc(e.message)}</p><p>Открой страницу заново из меню трея.</p></div>`; return; }
+  renderRules();
+  let t = "rules";
+  try { t = localStorage.getItem("tab") || "rules"; } catch (_) {}
+  switchTab(t);
+  timer = setInterval(tick, 2000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF to run in cmd and Windows PowerShell
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+package/README.txt text eol=crlf
+package/subscription.txt text eol=crlf
+
+*.srs binary
+*.png binary
+*.ico binary

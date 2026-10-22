@@ -1,0 +1,168 @@
+{
+  "log": {
+    "level": "warn",
+    "output": "sing-box.log",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-direct"
+      },
+      {
+        "type": "https",
+        "tag": "dns-proxy",
+        "detour": "proxy",
+        "server": "1.1.1.1"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "servers-dns",
+        "server": "dns-direct"
+      },
+      {
+        "rule_set": "direct-dns",
+        "server": "dns-direct"
+      },
+      {
+        "clash_mode": "Global",
+        "server": "dns-proxy"
+      },
+      {
+        "rule_set": "vpn-dns",
+        "server": "dns-proxy"
+      },
+      {
+        "rule_set": [
+          "itdog-inside",
+          "itdog-google-ai"
+        ],
+        "server": "dns-proxy"
+      }
+    ],
+    "final": "dns-direct",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "mtu": 9000,
+      "address": "172.19.0.1/30",
+      "auto_route": true,
+      "stack": "mixed"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "proxy",
+      "outbounds": [
+        "direct"
+      ],
+      "default": "direct"
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "process_name": "xray.exe",
+        "outbound": "direct"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "rule_set": "direct",
+        "outbound": "direct"
+      },
+      {
+        "clash_mode": "Global",
+        "outbound": "proxy"
+      },
+      {
+        "rule_set": "vpn",
+        "outbound": "proxy"
+      },
+      {
+        "rule_set": [
+          "itdog-inside",
+          "itdog-google-ai"
+        ],
+        "outbound": "proxy"
+      }
+    ],
+    "rule_set": [
+      {
+        "type": "local",
+        "tag": "direct",
+        "path": "rules/direct.json"
+      },
+      {
+        "type": "local",
+        "tag": "direct-dns",
+        "path": "rules/direct-dns.json"
+      },
+      {
+        "type": "local",
+        "tag": "vpn",
+        "path": "rules/vpn.json"
+      },
+      {
+        "type": "local",
+        "tag": "vpn-dns",
+        "path": "rules/vpn-dns.json"
+      },
+      {
+        "type": "local",
+        "tag": "servers-dns",
+        "path": "rules/servers-dns.json"
+      },
+      {
+        "type": "remote",
+        "tag": "itdog-inside",
+        "format": "binary",
+        "url": "https://github.com/itdoginfo/allow-domains/releases/latest/download/russia_inside.srs",
+        "initial_path": "rules/itdog-inside.srs",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "itdog-google-ai",
+        "format": "binary",
+        "url": "https://github.com/itdoginfo/allow-domains/releases/latest/download/google_ai.srs",
+        "initial_path": "rules/itdog-google-ai.srs",
+        "update_interval": "1d"
+      }
+    ],
+    "final": "direct",
+    "auto_detect_interface": true,
+    "default_domain_resolver": "dns-direct"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "cache.db"
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:7890",
+      "external_ui": "ui",
+      "external_ui_download_url": "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip",
+      "external_ui_download_detour": "proxy"
+    }
+  }
+}

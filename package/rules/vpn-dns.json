@@ -1,0 +1,62 @@
+{
+  "version": 3,
+  "rules": [
+    {
+      "domain_suffix": [
+        "anthropic.com",
+        "chatgpt.com",
+        "claude.ai",
+        "claude.com",
+        "claudeusercontent.com",
+        "dis.gd",
+        "discord.co",
+        "discord.com",
+        "discord.dev",
+        "discord.gg",
+        "discord.gift",
+        "discord.media",
+        "discordapp.com",
+        "discordapp.net",
+        "discordcdn.com",
+        "discordsays.com",
+        "discordstatus.com",
+        "githubcopilot.com",
+        "oaistatic.com",
+        "oaiusercontent.com",
+        "openai.com",
+        "rbxcdn.com",
+        "rbxinfra.net",
+        "roblox.com",
+        "robloxdev.com",
+        "sora.com",
+        "steam-chat.com",
+        "steamcommunity.com",
+        "steampowered.com",
+        "steamstatic.com",
+        "t.me",
+        "tdesktop.com",
+        "telegra.ph",
+        "telegram.dog",
+        "telegram.me",
+        "telegram.org",
+        "telesco.pe",
+        "visualstudio.com",
+        "vsassets.io",
+        "vscode-cdn.net",
+        "vscode.dev",
+        "wa.me",
+        "whatsapp.biz",
+        "whatsapp.com",
+        "whatsapp.net"
+      ],
+      "domain_keyword": [
+        "anthropic",
+        "chatgpt",
+        "discord",
+        "openai",
+        "telegram",
+        "whatsapp"
+      ]
+    }
+  ]
+}
