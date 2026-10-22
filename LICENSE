@@ -19,8 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-This license covers the code in this repository (tray, scripts, site and
-package templates). The release archive also contains third-party programs
-under their own licenses: sing-box (GPL-3.0-or-later, see sing-box-LICENSE.txt),
-Xray-core (MPL-2.0, see xray-LICENSE.txt) and MetaCubeXD (MIT).
