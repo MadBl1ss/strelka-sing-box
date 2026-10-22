@@ -9,10 +9,9 @@ Discord, Telegram, WhatsApp, ChatGPT и заблокированные сайт�
 **[Скачать для Windows](https://github.com/MadBl1ss/strelka-sing-box/releases/latest/download/strelka-sing-box-windows-x64.zip)**:
 Windows 10 и 11, 64 бита. Нужна своя подписка у VPN-провайдера.
 
-**[Инструкция с картинками: strelka-site.vercel.app](https://strelka-site.vercel.app)**.
-На сайте можно проверить, пойдёт ли нужная программа или сайт через VPN. Некоторые
-провайдеры в России блокируют адреса Vercel, и тогда сайт открывается только через
-VPN. Всё нужное для установки есть и в этом README.
+**[Инструкция с картинками: madbl1ss.github.io/strelka-site](https://madbl1ss.github.io/strelka-site/)**.
+Сайт открывается без VPN, и на нём можно проверить, пойдёт ли нужная программа или
+сайт через VPN.
 
 ## Что умеет
 
@@ -42,7 +41,7 @@ VPN. Всё нужное для установки есть и в этом READM
 
 Через полминуты щит у часов станет зелёным. Дальше VPN поднимается сам при входе в
 Windows. Подробности и решение проблем есть в `README.txt` внутри архива и
-[на сайте](https://strelka-site.vercel.app/#help).
+[на сайте](https://madbl1ss.github.io/strelka-site/#help).
 
 ## Что идёт через VPN
 
@@ -55,7 +54,7 @@ Windows. Подробности и решение проблем есть в `RE
 | Автосписок: Instagram, X, YouTube, LinkedIn, Gemini и ещё ~1200 сайтов | |
 
 Точные списки лежат в [`package/rules`](package/rules): `vpn.json` и `direct.json`.
-Проверить конкретную программу или сайт можно [на сайте](https://strelka-site.vercel.app/#rules).
+Проверить конкретную программу или сайт можно [на сайте](https://madbl1ss.github.io/strelka-site/#rules).
 Свои правки делаются из меню щита, пункт «Правила маршрутизации…».
 
 ## Как устроено
