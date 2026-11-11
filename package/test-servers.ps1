@@ -248,7 +248,7 @@ if ($cur -eq $best.Tag) {
 } else {
     Write-Host "  Сейчас выбран: $cur. Лучший по тесту: $(Who $best)." -ForegroundColor Yellow
     if ($cur -eq 'auto') {
-        Write-Host "  (auto сам выбирает сервер по пингу; после переключения VPN будет всегда идти через $($best.Tag))" -ForegroundColor DarkGray
+        Write-Host "  (auto держится за свой сервер, пока тот отвечает; после переключения VPN будет всегда идти через $($best.Tag))" -ForegroundColor DarkGray
     }
     $ans = Read-Host '  Переключить config.json на лучший? (y/N)'
     if ($ans -match '^(y|д)') {

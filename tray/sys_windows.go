@@ -42,6 +42,7 @@ func (a *app) restartCore() {
 		a.notify("Перезапуск", "Не вышло: "+err.Error())
 		return
 	}
+	a.awaitStart()
 	a.notify("Перезапуск", "Поднимаю туннель заново...")
 }
 
@@ -50,6 +51,7 @@ func (a *app) stopCore() {
 		a.notify("Остановка", "Не вышло: "+err.Error())
 		return
 	}
+	a.awaitStop()
 	a.notify("Остановка", "Выключаю VPN...")
 }
 
@@ -61,7 +63,13 @@ func (a *app) showLog() {
 	_ = openFile(p)
 }
 
-func (a *app) openBench() { _ = openURL(filepath.Join(a.dir, "test-servers.bat")) }
+// openBench starts the full test. It stops the VPN for its own run, so that
+// stop is no surprise either.
+func (a *app) openBench() {
+	if openURL(filepath.Join(a.dir, "test-servers.bat")) == nil {
+		a.awaitStop()
+	}
+}
 
 // instanceMutex is held for the lifetime of the process; closing it would
 // let a second icon start.

@@ -44,10 +44,17 @@ func shrink(pts [][2]float64, f float64) [][2]float64 {
 }
 
 // makeIcon renders the shield to a 32x32 PNG, wrapped as ICO on Windows by
-// iconBytes. NRGBA keeps colours straight (not alpha-premultiplied), which
-// is what the PNG encoder wants.
+// iconBytes.
 func makeIcon(fill, edge color.NRGBA) []byte {
-	const size, ss = 32, 4
+	const size = 32
+	return iconBytes(shieldPNG(fill, edge, size), size)
+}
+
+// shieldPNG draws the shield at any size. NRGBA keeps colours straight (not
+// alpha-premultiplied), which is what the PNG encoder wants.
+func shieldPNG(fill, edge color.NRGBA, size int) []byte {
+	const ss = 4
+	scale := 32 / float64(size) // the outline is laid out on a 32x32 grid
 	img := image.NewNRGBA(image.Rect(0, 0, size, size))
 	inner := shrink(shield, 0.80)
 
@@ -56,8 +63,8 @@ func makeIcon(fill, edge color.NRGBA) []byte {
 			var r, g, b, hits float64
 			for sy := 0; sy < ss; sy++ {
 				for sx := 0; sx < ss; sx++ {
-					x := float64(px) + (float64(sx)+0.5)/ss
-					y := float64(py) + (float64(sy)+0.5)/ss
+					x := (float64(px) + (float64(sx)+0.5)/ss) * scale
+					y := (float64(py) + (float64(sy)+0.5)/ss) * scale
 					if !inPoly(x, y, shield) {
 						continue
 					}
@@ -89,7 +96,7 @@ func makeIcon(fill, edge color.NRGBA) []byte {
 	if err := png.Encode(&pngBuf, img); err != nil {
 		return nil
 	}
-	return iconBytes(pngBuf.Bytes(), size)
+	return pngBuf.Bytes()
 }
 
 // icoWrap puts a PNG inside a single-entry ICO container. Windows has
@@ -121,3 +128,7 @@ var icons = map[string][]byte{
 	"error": makeIcon(color.NRGBA{231, 76, 60, 255}, color.NRGBA{130, 40, 32, 255}),
 	"off":   makeIcon(color.NRGBA{130, 140, 150, 255}, color.NRGBA{70, 78, 86, 255}),
 }
+
+// toastIcon is the picture next to a notification: the green shield, large
+// enough to stay sharp there.
+var toastIcon = shieldPNG(color.NRGBA{46, 204, 113, 255}, color.NRGBA{24, 120, 66, 255}, 96)

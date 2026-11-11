@@ -9,6 +9,8 @@
 # Never commit a configured copy: these hold someone's subscription keys
 hwid.txt
 xray.json
+server-stats.json
+tray-settings.json
 cache.db
 *.log
 config.bak.json

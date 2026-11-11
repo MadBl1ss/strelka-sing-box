@@ -28,9 +28,28 @@ import (
 //
 // subscription.txt may list several providers, one per line. Their servers
 // go into one pool: the "proxy" selector offers every server by hand plus
-// "auto", a urltest group that keeps picking the one with the lowest ping.
+// "auto", a urltest group that stays on its server for as long as it answers.
 
 const autoTag = "auto"
+
+// How "auto" behaves. sing-box moves a urltest group to another server when
+// that one is faster than the current by more than the tolerance, measured
+// once per interval - with the stock 50 ms that is a coin toss between two
+// similar servers, and every move changes the exit IP under open sessions.
+//
+// A tolerance no measurement can exceed turns that off: the current server
+// stays while it passes its checks, and when it fails one the group takes the
+// first live server in list order (see orderPool for that order). The value
+// must leave room below 65535 for the delay it is added to.
+//
+// The interval is half of what it looks like: a server whose last result is
+// younger than the interval is skipped, and a result is always a moment
+// younger than the tick that produced it. So every live server is re-tested
+// on every second tick - once a minute with "30s".
+const (
+	autoInterval  = "30s"
+	autoTolerance = 30000
+)
 
 // proxyOutbound covers every protocol the updater understands. Fields a
 // protocol does not use stay empty and are dropped by omitempty.
@@ -222,6 +241,7 @@ func updateSubscriptionFile(dir string, logf func(string, ...any)) error {
 	if len(pool) == 0 {
 		pool = tags
 	}
+	pool = orderPool(pool, loadStats(dir))
 	choices := append([]string{autoTag}, tags...)
 
 	// Keep the selected server across refreshes when it is still on offer.
@@ -247,7 +267,7 @@ func updateSubscriptionFile(dir string, logf func(string, ...any)) error {
 
 	all := make([]any, 0, len(entries)+3)
 	all = append(all, selectorOutbound{Type: "selector", Tag: "proxy", Outbounds: choices, Default: next})
-	all = append(all, urltestOutbound{Type: "urltest", Tag: autoTag, Outbounds: pool, Interval: "3m", Tolerance: 50})
+	all = append(all, urltestOutbound{Type: "urltest", Tag: autoTag, Outbounds: pool, Interval: autoInterval, Tolerance: autoTolerance})
 	for _, e := range entries {
 		all = append(all, e.ob)
 	}

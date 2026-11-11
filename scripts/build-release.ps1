@@ -51,7 +51,7 @@ Copy-Item $sbLicense (Join-Path $stage 'sing-box-LICENSE.txt')
 Copy-Item -Recurse (Join-Path $Bin 'ui') (Join-Path $stage 'ui')
 
 # A configured copy must never ship: these hold someone's keys.
-$leaks = Get-ChildItem -Recurse $stage -Include 'hwid.txt', 'xray.json', 'cache.db', '*.log', 'config.bak.json', 'config.before-*.json'
+$leaks = Get-ChildItem -Recurse $stage -Include 'hwid.txt', 'xray.json', 'server-stats.json', 'tray-settings.json', 'cache.db', '*.log', 'config.bak.json', 'config.before-*.json'
 if ($leaks) { throw "В сборку попали личные файлы: $($leaks.Name -join ', ')" }
 $servers = Get-Content -Raw (Join-Path $stage 'rules\servers-dns.json') | ConvertFrom-Json
 if ($servers.rules.Count) { throw 'rules\servers-dns.json должен быть пустым' }

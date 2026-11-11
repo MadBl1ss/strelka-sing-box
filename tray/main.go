@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/systray"
@@ -22,7 +23,29 @@ import (
 
 const (
 	pollEvery = 3 * time.Second
-	pingEvery = 15 * time.Second
+	// A hand-picked server is probed this often, and sooner after a miss so
+	// that three in a row do not take a minute to collect.
+	pingEvery  = 15 * time.Second
+	retryEvery = 5 * time.Second
+
+	// When the server "auto" sits on has no answer on record, the tray asks
+	// the core to re-check the pool instead of waiting for its next round.
+	recheckAfter = 10 * time.Second
+	recheckEvery = time.Minute
+	checkTimeout = 10 * time.Second
+
+	// A start the user asked for gets this long before it is called failed:
+	// it may have to download the subscription first.
+	startWait = 2 * time.Minute
+	// A stop the user asked for is "expected" for this long.
+	stopWait = 2 * time.Minute
+
+	statsEvery     = 30 * time.Second
+	statsSaveEvery = 5 * time.Minute
+	// A ping older than this is not shown next to a server.
+	pingShown = 15 * time.Minute
+
+	checkLabel = "Проверить все серверы (пинг)"
 )
 
 var (
@@ -67,13 +90,38 @@ type app struct {
 
 	conf   *cfg
 	cl     *client
-	cfgMod time.Time // config.json as last loaded
+	coreUp func() (started time.Time, found bool) // is the core process there
+	cfgMod time.Time                              // config.json as last loaded
 	setup  firstRun
 
-	mu        sync.RWMutex
-	snap      snapshot
-	prevState string
-	lastPing  time.Time
+	mu       sync.RWMutex
+	snap     snapshot
+	lastPing time.Time
+
+	// tick runs from the timer and from menu clicks; tickMu makes it one at
+	// a time. Everything below it belongs to whoever holds it.
+	tickMu        sync.Mutex
+	health        health
+	ann           announcer
+	noAnswerSince time.Time // "auto": since when its server has no result
+	lastRecheck   time.Time
+	rechecking    atomic.Bool
+	stats         *serverStats
+	statsAt       time.Time
+	statsSaved    time.Time
+	statsDirty    bool
+
+	// What the user asked for and has not seen happen yet, and how much they
+	// want to hear about it. Set from menu clicks, read by tick.
+	wantMu     sync.Mutex
+	expectStop time.Time // a stop is expected until then
+	startBy    time.Time // a start is awaited until then
+	wentDown   bool      // ...and the VPN has been seen down since it was asked
+	settings   settings
+	toastIcon  string // the shield as a file, for notifications
+
+	checking  atomic.Bool // a "check all servers" is running
+	checkedAt time.Time   // when the last one finished
 
 	miStatus  *systray.MenuItem
 	miTraffic *systray.MenuItem
@@ -81,12 +129,16 @@ type app struct {
 	miUptime  *systray.MenuItem
 	miPower   *systray.MenuItem
 	miAuto    *systray.MenuItem
+	miCheck   *systray.MenuItem
+	miNotify  map[string]*systray.MenuItem
 	miVPNAuto *systray.MenuItem
 	miRule    *systray.MenuItem
 	miGlobal  *systray.MenuItem
 	miSrv     *systray.MenuItem
 	miNoSrv   *systray.MenuItem
 	srvItems  map[string]*systray.MenuItem
+	srvBase   map[string]string // a server's menu label without its ping
+	srvLabel  map[string]string // the label as last pushed to the menu
 
 	// last values pushed into the menu, so ticks that change nothing are free
 	txtStatus   string
@@ -180,7 +232,23 @@ func (a *app) init() error {
 	}
 	a.conf = conf
 	a.cl = newClient(conf)
+	a.coreUp = func() (time.Time, bool) {
+		_, started, found := findProcess(coreImage)
+		return started, found
+	}
 	a.srvItems = map[string]*systray.MenuItem{}
+	a.srvBase = map[string]string{}
+	a.srvLabel = map[string]string{}
+	a.miNotify = map[string]*systray.MenuItem{}
+	a.settings = loadSettings(a.dir)
+	a.stats = loadStats(a.dir)
+	beeep.AppName = "Стрелка"
+	// One file for the life of the tray: handing the bytes over would write a
+	// temp file per notification and delete it while Windows may still be
+	// loading it.
+	if p := filepath.Join(os.TempDir(), "strelka-shield.png"); os.WriteFile(p, toastIcon, 0o644) == nil {
+		a.toastIcon = p
+	}
 	a.setup.active = conf.proxies == 0
 	return nil
 }
@@ -215,6 +283,8 @@ func (a *app) syncServers() {
 		if s.Addr != "" {
 			label += "   " + s.Addr
 		}
+		a.srvBase[s.Tag] = label
+		a.srvLabel[s.Tag] = label
 		if it, ok := a.srvItems[s.Tag]; ok {
 			it.SetTitle(label)
 			it.Show()
@@ -246,27 +316,31 @@ func fatal(err error) {
 
 // ---- polling -----------------------------------------------------------
 
+// poll looks at the core once. It reports what it saw (snapshot.raw) and
+// leaves the verdict to health.
 func (a *app) poll() snapshot {
 	var s snapshot
 
-	_, started, found := findProcess(coreImage)
+	started, found := a.coreUp()
 	if !found {
-		s.state = "off"
+		s.raw = rawOff
 		s.now = "-"
 		return s
 	}
 	s.since, s.sinceSet = started, !started.IsZero()
 
-	now, _, err := a.cl.selected(a.conf.selector)
-	if err != nil {
+	px, err := a.cl.proxies()
+	if err != nil || px[a.conf.selector].Now == "" {
 		// Process is up but the API is silent: still booting, or it bound a
 		// port it was not allowed to and is on its way out.
-		s.state = "error"
+		s.raw = rawError
 		s.now = "?"
 		return s
 	}
-	s.now = now
-	s.leaf = a.cl.leaf(now)
+	s.proxies = px
+	s.now = px[a.conf.selector].Now
+	s.leaf = leafOf(px, s.now)
+	s.auto = px[s.now].group()
 	if m, list, err := a.cl.mode(); err == nil {
 		s.mode, s.modes = m, list
 	}
@@ -275,28 +349,75 @@ func (a *app) poll() snapshot {
 		s.down, s.up, s.conns, s.viaVPN = d, u, total, via
 	}
 
+	if s.auto {
+		a.watchAuto(&s)
+	} else {
+		a.probe(&s)
+	}
+	if s.pingOK {
+		s.raw = rawOK
+	} else {
+		s.raw = rawBad
+	}
+	return s
+}
+
+// watchAuto reads how the server "auto" sits on did in the core's own
+// checks. It tests nothing itself: a failed test through the API makes the
+// core drop the server on the spot, and one slow answer is no reason to move.
+func (a *app) watchAuto(s *snapshot) {
+	if p := s.proxies[s.leaf]; p.alive() {
+		s.ping, s.pingOK = p.Delay, true
+		a.noAnswerSince = time.Time{}
+		return
+	}
+	// No result on record: the server failed its last check, or a connection
+	// through it. The core looks again on its next round; asking now gets the
+	// VPN onto a live server (or confirms this one) sooner.
+	now := time.Now()
+	if a.noAnswerSince.IsZero() {
+		a.noAnswerSince = now
+	}
+	if now.Sub(a.noAnswerSince) < recheckAfter || now.Sub(a.lastRecheck) < recheckEvery {
+		return
+	}
+	if !a.rechecking.CompareAndSwap(false, true) {
+		return
+	}
+	a.lastRecheck = now
+	cl, group := a.cl, s.now
+	log.Printf("%s: %s has no answer on record, asking the core to re-check", group, s.leaf)
+	go func() {
+		defer a.rechecking.Store(false)
+		if err := cl.testGroup(group, checkTimeout); err != nil {
+			log.Printf("re-check %s: %v", group, err)
+		}
+	}()
+}
+
+// probe tests a server the user picked by hand. Nobody else does: the core
+// only checks the members of "auto" while "auto" is in use.
+func (a *app) probe(s *snapshot) {
 	a.mu.RLock()
 	prev := a.snap
 	last := a.lastPing
 	a.mu.RUnlock()
 
-	if time.Since(last) >= pingEvery || prev.leaf != s.leaf {
-		a.mu.Lock()
-		a.lastPing = time.Now()
-		a.mu.Unlock()
-		if ms, err := a.cl.delay(s.leaf); err == nil {
-			s.ping, s.pingOK = ms, true
-		}
-	} else {
+	every := pingEvery
+	if a.health.fails > 0 {
+		every = retryEvery
+	}
+	if time.Since(last) < every && prev.leaf == s.leaf && !prev.auto {
 		s.ping, s.pingOK = prev.ping, prev.pingOK
+		return
 	}
-
-	if s.pingOK {
-		s.state = "ok"
-	} else {
-		s.state = "warn"
+	a.mu.Lock()
+	a.lastPing = time.Now()
+	a.mu.Unlock()
+	s.probed = true
+	if ms, err := a.cl.delay(s.leaf); err == nil {
+		s.ping, s.pingOK = ms, true
 	}
-	return s
 }
 
 // ---- formatting (shared by the menu and the self-test) -----------------
@@ -324,19 +445,34 @@ func serverName(s snapshot) string {
 
 func statusLine(s snapshot) string {
 	switch s.state {
-	case "ok":
-		line := fmt.Sprintf("Подключено — %s — %d мс", serverName(s), s.ping)
+	case stOK:
+		line := "Подключено — " + serverName(s)
+		if s.pingOK {
+			line += fmt.Sprintf(" — %d мс", s.ping)
+		}
 		if strings.EqualFold(s.mode, modeGlobal) {
 			line += " — весь трафик"
 		}
 		return line
-	case "warn":
+	case stStarting:
+		if s.leaf != "" {
+			return "Проверяю " + serverName(s) + "…"
+		}
+		return "Запускается…"
+	case stWarn:
+		if s.auto {
+			return "Серверы не отвечают"
+		}
 		return fmt.Sprintf("%s не отвечает", serverName(s))
-	case "error":
+	case stError:
 		return "sing-box не отвечает"
 	}
 	return "VPN выключен"
 }
+
+// apiUp says whether this poll reached the core, so the traffic rows mean
+// something.
+func apiUp(s snapshot) bool { return s.raw == rawOK || s.raw == rawBad }
 
 func trafficLine(s snapshot) string {
 	return fmt.Sprintf("%s вниз / %s вверх", fmtBytes(s.down), fmtBytes(s.up))
@@ -359,7 +495,7 @@ func uptimeLine(s snapshot) string {
 
 func tooltip(s snapshot) string {
 	t := "sing-box — " + statusLine(s)
-	if s.state == "ok" {
+	if s.state == stOK {
 		t += fmt.Sprintf("\n%s вниз, %d через VPN", fmtBytes(s.down), s.viaVPN)
 	}
 	// NOTIFYICONDATA caps the tip; stay well under it.
@@ -397,7 +533,8 @@ func (a *app) onReady() {
 	on(a.miRule, func() { a.setMode(modeRule) })
 	on(a.miGlobal, func() { a.setMode(modeGlobal) })
 
-	miTest := systray.AddMenuItem("Тест серверов (пинг и скорость)", "")
+	a.miCheck = systray.AddMenuItem(checkLabel, "Несколько секунд, VPN при этом работает")
+	miTest := systray.AddMenuItem("Полный тест (пинг и скорость)", "В отдельном окне, занимает пару минут")
 	miUpd := systray.AddMenuItem("Обновить подписку", "")
 	systray.AddSeparator()
 	miRules := systray.AddMenuItem("Правила маршрутизации…", "Какие программы и сайты идут через VPN")
@@ -409,9 +546,21 @@ func (a *app) onReady() {
 	systray.AddSeparator()
 	a.miVPNAuto = systray.AddMenuItemCheckbox(vpnAutostartLabel, elevHint, logonTaskExists())
 	a.miAuto = systray.AddMenuItemCheckbox(autostartLabel, "", startupEnabled(a.exePath))
+	miNotify := systray.AddMenuItem("Уведомления", "О чём сообщать всплывающим окном")
+	for _, l := range []struct{ level, title, hint string }{
+		{notifyAll, "Обо всём", "Подключение, отключение, смена сервера"},
+		{notifyProblems, "Только о проблемах", "VPN упал или серверы молчат дольше полминуты"},
+		{notifyNone, "Выключены", "Состояние видно по цвету щита"},
+	} {
+		it := miNotify.AddSubMenuItemCheckbox(l.title, l.hint, a.settings.Notify == l.level)
+		a.miNotify[l.level] = it
+		level := l.level
+		on(it, func() { a.setNotify(level) })
+	}
 	systray.AddSeparator()
 	miQuit := systray.AddMenuItem("Закрыть иконку (VPN останется работать)", "")
 
+	on(a.miCheck, a.checkAll)
 	on(miTest, a.openBench)
 	on(miUpd, a.updateSubscription)
 	on(miRules, a.openRules)
@@ -420,7 +569,7 @@ func (a *app) onReady() {
 	on(miRestart, a.restartCore)
 	on(a.miPower, func() {
 		a.mu.RLock()
-		off := a.snap.state == "off"
+		off := a.snap.state == stOff
 		a.mu.RUnlock()
 		if off {
 			a.restartCore()
@@ -443,7 +592,12 @@ func (a *app) onReady() {
 			a.notify("Автозапуск иконки", "Выключен.")
 		}
 	})
-	on(miQuit, func() { systray.Quit() })
+	on(miQuit, func() {
+		a.tickMu.Lock()
+		a.saveStats(time.Now(), true)
+		a.tickMu.Unlock()
+		systray.Quit()
+	})
 
 	systray.SetOnTapped(a.openPanel)
 
@@ -481,19 +635,27 @@ func (a *app) loop() {
 }
 
 func (a *app) tick() {
+	a.tickMu.Lock()
+	defer a.tickMu.Unlock()
+
 	a.reloadConfig()
 	s := a.poll()
+	now := time.Now()
+	a.wantMu.Lock()
+	expected := now.Before(a.expectStop)
+	a.wantMu.Unlock()
+	prev := a.health.state
+	s.state = a.health.observe(now, s, expected)
 
 	a.mu.Lock()
-	prev := a.prevState
+	old := a.snap
 	a.snap = s
-	a.prevState = s.state
 	a.mu.Unlock()
 
 	// Only on change: every SetIcon rebuilds an HICON, and this runs every
 	// few seconds for as long as the machine is on.
-	if s.state != prev {
-		systray.SetIcon(icons[s.state])
+	if iconFor(s.state) != iconFor(prev) || prev == "" {
+		systray.SetIcon(icons[iconFor(s.state)])
 	}
 	systray.SetTooltip(tooltip(s))
 
@@ -501,7 +663,7 @@ func (a *app) tick() {
 	// touch a menu item only when its text or state actually differs.
 	setTitle(a.miStatus, &a.txtStatus, statusLine(s))
 
-	show := s.state == "ok" || s.state == "warn"
+	show := apiUp(s)
 	if show != a.rowsShown {
 		a.rowsShown = show
 		for _, it := range []*systray.MenuItem{a.miTraffic, a.miConns, a.miUptime} {
@@ -528,9 +690,10 @@ func (a *app) tick() {
 			}
 		}
 	}
+	a.showPings(now, s)
 
 	power := "Остановить VPN"
-	if s.state == "off" {
+	if s.state == stOff {
 		power = "Запустить VPN"
 	}
 	setTitle(a.miPower, &a.txtPower, power)
@@ -547,31 +710,211 @@ func (a *app) tick() {
 	}
 	a.applyPendingMode(s)
 
-	if prev != "" && prev != s.state {
-		switch s.state {
-		case "ok":
-			a.notify("VPN подключен", fmt.Sprintf("Сервер %s, пинг %d мс", serverName(s), s.ping))
-		case "warn":
-			a.notify("Сервер не отвечает", serverName(s)+" не даёт пинг. Смени сервер через меню.")
-		case "off":
-			a.notify("VPN выключен", "sing-box не запущен.")
-		case "error":
-			a.notify("Проблема с VPN", "sing-box запущен, но не отвечает.")
-		}
-	}
-	if prev != s.state {
-		log.Printf("state: %s -> %s", prev, s.state)
-	}
+	a.announce(now, prev, old, s)
+	a.keepStats(now, s)
 
 	if a.setup.active {
 		a.firstRunStep()
 	}
 }
 
+// announce turns a change of the settled state into a log line and, when it
+// is worth interrupting someone, a notification.
+func (a *app) announce(now time.Time, prev string, old, s snapshot) {
+	a.wantMu.Lock()
+	level := a.settings.Notify
+	expected := now.Before(a.expectStop)
+	// A restart is only done once the VPN has gone down and come back: right
+	// after the click it is still up, and that is not the answer.
+	waiting := !a.startBy.IsZero()
+	if waiting && s.state != stOK {
+		a.wentDown = true
+	}
+	asked := waiting && a.wentDown
+	late := waiting && now.After(a.startBy)
+	if (asked && s.state == stOK) || late || (!waiting && s.state == stOff) {
+		a.startBy, a.expectStop, a.wentDown = time.Time{}, time.Time{}, false
+	}
+	a.wantMu.Unlock()
+
+	if prev != s.state {
+		log.Printf("state: %s -> %s", prev, s.state)
+		t := transition{prev: prev, cur: s.state, snap: s, expected: expected, asked: asked}
+		if msg := a.ann.decide(now, level, t); msg != nil {
+			a.notify(msg.title, msg.body)
+		}
+	}
+	if late && s.state != stOK && level != notifyNone {
+		a.notify("VPN не запустился", "Прошло две минуты, а он так и не поднялся. Загляни в «Показать лог».")
+	}
+
+	// "auto" moving to another server is its job, not news - unless asked.
+	if s.auto && old.auto && s.now == old.now && old.leaf != "" && s.leaf != old.leaf {
+		log.Printf("%s: %s -> %s", s.now, old.leaf, s.leaf)
+		if level == notifyAll && s.state == stOK {
+			a.notify("Сервер сменился", fmt.Sprintf("%s: %s → %s", s.now, old.leaf, s.leaf))
+		}
+	}
+}
+
+// keepStats feeds the core's check results into the per-server picture that
+// orders "auto" (see stats.go), and writes it out now and then.
+func (a *app) keepStats(now time.Time, s snapshot) {
+	if s.proxies == nil || now.Sub(a.statsAt) < statsEvery {
+		return
+	}
+	a.statsAt = now
+	probed := ""
+	if !s.auto {
+		probed = s.leaf
+	}
+	if a.stats.observe(now, a.conf.pool, s.proxies, probed) {
+		a.statsDirty = true
+	}
+	a.saveStats(now, false)
+}
+
+func (a *app) saveStats(now time.Time, force bool) {
+	if !a.statsDirty || (!force && now.Sub(a.statsSaved) < statsSaveEvery) {
+		return
+	}
+	a.statsSaved, a.statsDirty = now, false
+	if err := a.stats.save(a.dir, now); err != nil {
+		log.Printf("server stats: %v", err)
+	}
+}
+
+// pingSuffix is what a server's menu line says about its last check.
+func pingSuffix(now time.Time, p proxyInfo, checked time.Time) string {
+	switch {
+	case p.group():
+		return ""
+	case p.alive() && now.Sub(p.Tested) < pingShown:
+		return fmt.Sprintf("   %d мс", p.Delay)
+	case !p.alive() && !checked.IsZero() && now.Sub(checked) < pingShown:
+		return "   нет ответа"
+	}
+	return ""
+}
+
+// showPings puts each server's last result next to its name.
+func (a *app) showPings(now time.Time, s snapshot) {
+	a.mu.RLock()
+	checked := a.checkedAt
+	a.mu.RUnlock()
+	for tag, it := range a.srvItems {
+		base, ok := a.srvBase[tag]
+		if !ok {
+			continue
+		}
+		label := base
+		if p, known := s.proxies[tag]; known {
+			label += pingSuffix(now, p, checked)
+		}
+		if a.srvLabel[tag] != label {
+			a.srvLabel[tag] = label
+			it.SetTitle(label)
+		}
+	}
+}
+
 func (a *app) notify(title, body string) {
-	if err := beeep.Notify(title, body, ""); err != nil {
+	if err := beeep.Notify(title, body, a.toastIcon); err != nil {
 		log.Printf("notify: %v", err)
 	}
+}
+
+// awaitStart and awaitStop record what the user just asked the VPN to do, so
+// that the change that follows is not reported as a surprise.
+func (a *app) awaitStart() {
+	now := time.Now()
+	a.wantMu.Lock()
+	a.expectStop, a.startBy, a.wentDown = now.Add(stopWait), now.Add(startWait), false
+	a.wantMu.Unlock()
+}
+
+func (a *app) awaitStop() {
+	a.wantMu.Lock()
+	a.expectStop, a.startBy, a.wentDown = time.Now().Add(stopWait), time.Time{}, false
+	a.wantMu.Unlock()
+}
+
+func (a *app) setNotify(level string) {
+	a.wantMu.Lock()
+	a.settings.Notify = level
+	err := saveSettings(a.dir, a.settings)
+	a.wantMu.Unlock()
+	if err != nil {
+		log.Printf("settings: %v", err)
+	}
+	for l, it := range a.miNotify {
+		if l == level {
+			it.Check()
+		} else {
+			it.Uncheck()
+		}
+	}
+}
+
+// checkAll has the running core test every server at once and shows the
+// result in the server list. Unlike the full test it starts nothing and takes
+// seconds; it measures the delay only, not the speed.
+func (a *app) checkAll() {
+	a.mu.RLock()
+	s := a.snap
+	a.mu.RUnlock()
+	if !apiUp(s) {
+		a.notify("Проверка серверов", "Сначала включи VPN: серверы проверяет он.")
+		return
+	}
+	if !a.checking.CompareAndSwap(false, true) {
+		return
+	}
+	defer a.checking.Store(false)
+
+	a.miCheck.SetTitle("Проверяю серверы…")
+	start := time.Now()
+	err := a.cl.testGroup(a.conf.selector, checkTimeout)
+	a.miCheck.SetTitle(checkLabel)
+	if err != nil {
+		a.notify("Проверка серверов", "Не вышло: "+err.Error())
+		return
+	}
+	a.mu.Lock()
+	a.checkedAt = time.Now()
+	a.mu.Unlock()
+	a.tick()
+
+	a.mu.RLock()
+	px := a.snap.proxies
+	a.mu.RUnlock()
+	a.notify("Проверка серверов", checkSummary(px, a.conf.servers, start))
+}
+
+// checkSummary counts who answered a check started at start.
+func checkSummary(px map[string]proxyInfo, servers []server, start time.Time) string {
+	total, alive := 0, 0
+	best, bestMs := "", 0
+	for _, sv := range servers {
+		p, known := px[sv.Tag]
+		if !known || p.group() {
+			continue
+		}
+		total++
+		// A server that failed lost its result; one the check never got to
+		// in time still shows an older one.
+		if !p.alive() || p.Tested.Before(start.Add(-time.Second)) {
+			continue
+		}
+		alive++
+		if best == "" || p.Delay < bestMs {
+			best, bestMs = sv.Tag, p.Delay
+		}
+	}
+	if alive == 0 {
+		return fmt.Sprintf("Не ответил ни один из %d. Проверь интернет.", total)
+	}
+	return fmt.Sprintf("Отвечают %d из %d. Самый быстрый: %s — %d мс.", alive, total, best, bestMs)
 }
 
 // ---- actions -----------------------------------------------------------
@@ -612,7 +955,7 @@ func (a *app) setMode(m string) {
 	a.mu.RUnlock()
 	a.checkedMode = "" // undo the click's own toggle on the next tick
 
-	if s.state == "off" {
+	if s.state == stOff {
 		a.notify("Режим", "Сначала включи VPN: режим переключается на работающем VPN.")
 		return
 	}
@@ -705,6 +1048,7 @@ func (a *app) runSelfTest() {
 	}
 
 	s := a.poll()
+	s.state = a.health.observe(time.Now(), s, false)
 	a.snap = s
 	fmt.Println()
 	fmt.Printf("state      : %s\n", s.state)
@@ -713,7 +1057,7 @@ func (a *app) runSelfTest() {
 	fmt.Println()
 	fmt.Println("меню:")
 	fmt.Printf("   %s\n", statusLine(s))
-	if s.state == "ok" || s.state == "warn" {
+	if apiUp(s) {
 		fmt.Printf("   %s\n", trafficLine(s))
 		fmt.Printf("   %s\n", connsLine(s))
 		fmt.Printf("   %s\n", uptimeLine(s))
@@ -727,17 +1071,18 @@ func (a *app) runSelfTest() {
 		}
 		fmt.Printf("      %s %-6s %s\n", mark, sv.Tag, sv.Addr)
 	}
-	fmt.Println("   Тест серверов / Обновить подписку")
+	fmt.Println("   Проверить все серверы / Полный тест / Обновить подписку")
 	fmt.Println("   ---")
 	fmt.Println("   Правила маршрутизации… / Открыть веб-панель / Показать лог")
 	fmt.Println("   ---")
 	power := "Остановить VPN"
-	if s.state == "off" {
+	if s.state == stOff {
 		power = "Запустить VPN"
 	}
 	fmt.Printf("   Перезапустить VPN / %s\n", power)
 	fmt.Println("   ---")
 	fmt.Printf("   Автозапуск VPN: %v\n", logonTaskExists())
 	fmt.Printf("   Автозапуск иконки: %v\n", startupEnabled(a.exePath))
+	fmt.Printf("   Уведомления: %s\n", a.settings.Notify)
 	fmt.Println("   Закрыть иконку")
 }
